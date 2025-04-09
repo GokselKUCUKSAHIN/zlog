@@ -1,2 +1,2 @@
-# std-logs
+# zlog
 standardized logging in go
