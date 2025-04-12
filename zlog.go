@@ -5,42 +5,32 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
 
 type ZLogger interface {
 	Context(ctx context.Context, keys []string) ZLogger
-	KeyValue(key, value string) ZLogger
 	Segment(mainSegment string, detail ...string) ZLogger
 	Error(err error) ZLogger
+	AddSource() ZLogger
+	AddCallStack() ZLogger
 	Message(message string)
 	Messagef(format string, args ...any)
 }
 
 type zlogImpl struct {
-	logger *slog.Logger
-	attrs  []any
+	logger            *slog.Logger
+	attrs             []any
+	maxCallStackDepth int
 }
 
 var (
-	debugLogger      *slog.Logger
-	infoLogger       *slog.Logger
-	warnLogger       *slog.Logger
-	errorLogger      *slog.Logger
-	loggerMap        map[slog.Level]*slog.Logger
-	sensitiveHeaders = map[string]struct{}{
-		"authorization": {},
-		"x-api-key":     {},
-		"api-key":       {},
-		"jwt":           {},
-		"token":         {},
-		"password":      {},
-		"credit-card":   {},
-		"tckn":          {},
-		"wasmjwt":       {},
-		"cookie":        {},
-	}
+	debugLogger *slog.Logger
+	infoLogger  *slog.Logger
+	warnLogger  *slog.Logger
+	errorLogger *slog.Logger
 )
 
 func init() {
@@ -48,13 +38,6 @@ func init() {
 	infoLogger = initNewSlog(slog.LevelInfo)
 	warnLogger = initNewSlog(slog.LevelWarn)
 	errorLogger = initNewSlog(slog.LevelError)
-
-	loggerMap = map[slog.Level]*slog.Logger{
-		slog.LevelDebug: debugLogger,
-		slog.LevelInfo:  infoLogger,
-		slog.LevelWarn:  warnLogger,
-		slog.LevelError: errorLogger,
-	}
 }
 
 func initNewSlog(customLevel slog.Level) *slog.Logger {
@@ -68,6 +51,7 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 		return attr
 	}
 	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource:   false,
 		ReplaceAttr: replaceAttr,
 	})
 	return slog.New(jsonHandler)
@@ -75,50 +59,35 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 
 func Debug() ZLogger {
 	return &zlogImpl{
-		logger: debugLogger,
+		logger:            debugLogger,
+		maxCallStackDepth: 20,
 	}
 }
 
 func Info() ZLogger {
 	return &zlogImpl{
-		logger: infoLogger,
+		logger:            infoLogger,
+		maxCallStackDepth: 5,
 	}
 }
 
 func Warn() ZLogger {
 	return &zlogImpl{
-		logger: warnLogger,
+		logger:            warnLogger,
+		maxCallStackDepth: 5,
 	}
 }
 
 func Error() ZLogger {
 	return &zlogImpl{
-		logger: errorLogger,
+		logger:            errorLogger,
+		maxCallStackDepth: 10,
 	}
 }
-
-//func AutoLevel[T any](cmp T, leveler func(T) slog.Level) ZLogger {
-//	logger, exists := loggerMap[leveler(cmp)]
-//	if !exists {
-//		logger = errorLogger.With(
-//			slog.String("zlog_warning", "AutoLevel failed. used default Error Logger as fail safe"),
-//		)
-//	}
-//	return &zlogImpl{
-//		logger: logger,
-//	}
-//}
 
 func (z *zlogImpl) Context(ctx context.Context, keys []string) ZLogger {
 	contextMap := make(map[string]any, len(keys))
 	for _, key := range keys {
-		//< might be overkill maybe seperate as ContextSecure
-		_, exists := sensitiveHeaders[strings.ToLower(key)]
-		if exists {
-			contextMap[key] = "[REDACTED]"
-			continue
-		}
-		//>
 		value := ctx.Value(key)
 		if value != nil {
 			contextMap[key] = value
@@ -145,6 +114,25 @@ func (z *zlogImpl) Error(err error) ZLogger {
 	return z.appendAttr(slog.String("error_msg", err.Error()))
 }
 
+func (z *zlogImpl) AddSource() ZLogger {
+	return z.appendAttr(slog.String("source", getSourceString(2)))
+}
+
+func (z *zlogImpl) AddCallStack() ZLogger {
+	callStack := make([]string, 0)
+	for skip := 2; skip < z.maxCallStackDepth; skip++ {
+		current := getSourceString(skip)
+		if current == "# @ :0" {
+			continue
+		}
+		callStack = append(callStack, current)
+		if strings.HasPrefix(current, "#main.main") {
+			break
+		}
+	}
+	return z.appendAttr(slog.Any("callstack", callStack))
+}
+
 func (z *zlogImpl) Message(message string) {
 	z.logger.Info(message, z.attrs...)
 }
@@ -161,4 +149,15 @@ func (z *zlogImpl) appendAttr(attr slog.Attr) ZLogger {
 func (z *zlogImpl) appendAttrs(attrs ...any) ZLogger {
 	z.attrs = append(z.attrs, attrs...)
 	return z
+}
+
+func getSourceString(skip int) string {
+	pc, file, line, _ := runtime.Caller(skip)
+	fn := runtime.FuncForPC(pc)
+	funcName := fn.Name()
+	moduleSeparator := strings.LastIndex(funcName, "/")
+	if moduleSeparator != -1 {
+		funcName = funcName[moduleSeparator+1:]
+	}
+	return fmt.Sprintf("#%s @ %s:%d", funcName, file, line)
 }
