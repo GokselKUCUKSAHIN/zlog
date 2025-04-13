@@ -14,12 +14,11 @@ type ZLogger interface {
 	Context(ctx context.Context, keys []string) ZLogger
 	Segment(mainSegment string, detail ...string) ZLogger
 	Error(err error) ZLogger
+	Alert() ZLogger
 	AddSource() ZLogger
 	AddCallStack() ZLogger
 	Message(message string)
 	Messagef(format string, args ...any)
-	Panic(message string)
-	Panicf(format string, args ...any)
 	Fatal(message string)
 	Fatalf(format string, args ...any)
 }
@@ -89,6 +88,14 @@ func Error() ZLogger {
 	}
 }
 
+func Panic(message string) {
+	panic(message)
+}
+
+func Panicf(format string, args ...any) {
+	panic(fmt.Sprintf(format, args...))
+}
+
 func (z *zlogImpl) Context(ctx context.Context, keys []string) ZLogger {
 	contextMap := make(map[string]any, len(keys))
 	for _, key := range keys {
@@ -137,20 +144,16 @@ func (z *zlogImpl) AddCallStack() ZLogger {
 	return z.appendAttr(slog.Any("callstack", callStack))
 }
 
+func (z *zlogImpl) Alert() ZLogger {
+	return z.appendAttr(slog.Bool("alert", true))
+}
+
 func (z *zlogImpl) Message(message string) {
 	z.logger.Info(message, z.attrs...)
 }
 
 func (z *zlogImpl) Messagef(format string, args ...any) {
 	z.logger.Info(fmt.Sprintf(format, args...), z.attrs...)
-}
-
-func (z *zlogImpl) Panic(message string) {
-	panic(message)
-}
-
-func (z *zlogImpl) Panicf(format string, args ...any) {
-	panic(fmt.Sprintf(format, args...))
 }
 
 func (z *zlogImpl) Fatal(message string) {
