@@ -1,2 +1,2 @@
 # zlog 🪶
-standardized structed logging in go ⚡️
+standardized structured logging in go ⚡️
