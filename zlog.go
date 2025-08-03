@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -354,13 +355,29 @@ func (z *zlogImpl) appendAttrs(attrs ...any) ZLogger {
 	return z
 }
 
-func getSourceString(skip int) string {
-	pc, file, line, _ := runtime.Caller(skip)
-	fn := runtime.FuncForPC(pc)
-	funcName := fn.Name()
-	moduleSeparator := strings.LastIndex(funcName, "/")
-	if moduleSeparator != -1 {
-		funcName = funcName[moduleSeparator+1:]
+func getSourceString(skip int) (string, bool) {
+	pc, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return "", false
 	}
-	return fmt.Sprintf("#%s @ %s:%d", funcName, file, line)
+
+	var funcName string
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		funcName = "?"
+	} else {
+		funcName = fn.Name()
+		moduleSeparator := strings.LastIndex(funcName, "/")
+		if moduleSeparator != -1 {
+			funcName = funcName[moduleSeparator+1:]
+		}
+	}
+	var b strings.Builder
+	b.WriteByte('#')
+	b.WriteString(funcName)
+	b.WriteString(" @ ")
+	b.WriteString(file)
+	b.WriteByte(':')
+	b.WriteString(strconv.FormatInt(int64(line), 10))
+	return b.String(), true
 }
