@@ -218,7 +218,11 @@ func (z *zlogImpl) Error(err error) ZLogger {
 //	Info().WithSource().Message("Processing payment")
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","source":"payment.ProcessTransaction @ /app/payment.go:42","message":"Processing payment"}
 func (z *zlogImpl) WithSource() ZLogger {
-	return z.appendAttr(slog.String("source", getSourceString(2)))
+	source, ok := getSourceString(2)
+	if !ok {
+		return z
+	}
+	return z.appendAttr(slog.String("source", source))
 }
 
 // WithCallStack adds the call stack information to the log entry.
@@ -235,8 +239,8 @@ func (z *zlogImpl) WithSource() ZLogger {
 func (z *zlogImpl) WithCallStack() ZLogger {
 	callStack := make([]string, 0)
 	for skip := 2; skip < z.maxCallStackDepth; skip++ {
-		current := getSourceString(skip)
-		if current == "# @ :0" {
+		current, ok := getSourceString(skip)
+		if !ok {
 			continue
 		}
 		callStack = append(callStack, current)
