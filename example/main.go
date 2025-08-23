@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/GokselKUCUKSAHIN/zlog"
 )
@@ -25,24 +26,17 @@ func main() {
 
 	println("\n=== CONFIG SET ETTIKTEN SONRA ===")
 	// Global config'i set et - Yeni temiz yapı!
-	zlog.SetConfig(zlog.LogConfig{
-		Error: zlog.LevelConfig{
-			AutoSource:        true,
-			AutoCallStack:     true,
-			MaxCallStackDepth: 8, // Custom: Error için 8 seviye
-		},
-		Warn: zlog.LevelConfig{
-			AutoSource: true,
-		},
-		Info: zlog.LevelConfig{
-			AutoSource: true,
-		},
-		Debug: zlog.LevelConfig{
-			AutoSource:        true,
-			AutoCallStack:     true,
-			MaxCallStackDepth: 12, // Custom: Debug için 12 seviye
-		},
-	})
+
+	zlog.SetConfig(zlog.Configure(
+		zlog.AutoSourceConfig(slog.LevelError, true),
+		zlog.AutoCallStackConfig(slog.LevelError, true),
+		zlog.MaxCallStackDepthConfig(slog.LevelError, 8),
+		zlog.AutoSourceConfig(slog.LevelWarn, true),
+		zlog.AutoSourceConfig(slog.LevelInfo, true),
+		zlog.AutoSourceConfig(slog.LevelDebug, true),
+		zlog.AutoCallStackConfig(slog.LevelDebug, true),
+		zlog.MaxCallStackDepthConfig(slog.LevelDebug, 12),
+	))
 
 	// Şimdi aynı testleri tekrar çalıştır
 	zlog.Error().Error(errors.New("test error")).Message("Şimdi error için otomatik source ve callstack var")

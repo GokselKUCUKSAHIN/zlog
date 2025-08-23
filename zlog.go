@@ -32,19 +32,74 @@ type zlogImpl struct {
 	maxCallStackDepth int
 }
 
-// LevelConfig holds configuration for a specific log level
-type LevelConfig struct {
+// levelConfig holds configuration for a specific log level
+type levelConfig struct {
 	AutoSource        bool // Automatically add source information
 	AutoCallStack     bool // Automatically add call stack information
 	MaxCallStackDepth int  // Max call stack depth (0 = use default)
 }
 
-// LogConfig holds global configuration for automatic features
-type LogConfig struct {
-	Debug LevelConfig // Configuration for Debug level (default MaxCallStackDepth: 20)
-	Info  LevelConfig // Configuration for Info level (default MaxCallStackDepth: 5)
-	Warn  LevelConfig // Configuration for Warn level (default MaxCallStackDepth: 5)
-	Error LevelConfig // Configuration for Error level (default MaxCallStackDepth: 10)
+// logConfig holds global configuration for automatic features
+type logConfig struct {
+	Debug levelConfig // Configuration for Debug level (default MaxCallStackDepth: 20)
+	Info  levelConfig // Configuration for Info level (default MaxCallStackDepth: 5)
+	Warn  levelConfig // Configuration for Warn level (default MaxCallStackDepth: 5)
+	Error levelConfig // Configuration for Error level (default MaxCallStackDepth: 10)
+}
+
+type Configurable = func(config logConfig)
+
+func Configure(configs ...Configurable) logConfig {
+	conf := logConfig{}
+	for _, configFunc := range configs {
+		configFunc(conf)
+	}
+	return conf
+}
+
+func AutoSourceConfig(level slog.Level, autoSource bool) Configurable {
+	return func(config logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.AutoSource = autoSource
+		case slog.LevelInfo:
+			config.Info.AutoSource = autoSource
+		case slog.LevelWarn:
+			config.Warn.AutoSource = autoSource
+		case slog.LevelError:
+			config.Error.AutoSource = autoSource
+		}
+	}
+}
+
+func AutoCallStackConfig(level slog.Level, autoCallStack bool) Configurable {
+	return func(config logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.AutoCallStack = autoCallStack
+		case slog.LevelInfo:
+			config.Info.AutoCallStack = autoCallStack
+		case slog.LevelWarn:
+			config.Warn.AutoCallStack = autoCallStack
+		case slog.LevelError:
+			config.Error.AutoCallStack = autoCallStack
+		}
+	}
+}
+
+func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
+	return func(config logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.MaxCallStackDepth = maxDepth
+		case slog.LevelInfo:
+			config.Info.MaxCallStackDepth = maxDepth
+		case slog.LevelWarn:
+			config.Warn.MaxCallStackDepth = maxDepth
+		case slog.LevelError:
+			config.Error.MaxCallStackDepth = maxDepth
+		}
+	}
 }
 
 var (
@@ -52,7 +107,7 @@ var (
 	infoLogger   *slog.Logger
 	warnLogger   *slog.Logger
 	errorLogger  *slog.Logger
-	globalConfig LogConfig
+	globalConfig logConfig
 
 	// Default call stack depths for each log level
 	defaultCallStackDepths = map[slog.Level]int{
@@ -92,22 +147,19 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 //
 // Example:
 //
-//	zlog.SetConfig(zlog.LogConfig{
-//		Error: zlog.LevelConfig{
-//			AutoSource:        true,
-//			AutoCallStack:     true,
-//			MaxCallStackDepth: 15,  // Custom depth instead of default 10
-//		},
-//		Warn: zlog.LevelConfig{
-//			AutoSource: true,
-//		},
-//		Debug: zlog.LevelConfig{
-//			AutoSource:        true,
-//			AutoCallStack:     true,
-//			MaxCallStackDepth: 30,  // Custom depth instead of default 20
-//		},
-//	})
-func SetConfig(config LogConfig) {
+// zlog.SetConfig(zlog.Configure(
+//
+//	zlog.AutoSourceConfig(slog.LevelError, true),
+//	zlog.AutoCallStackConfig(slog.LevelError, true),
+//	zlog.MaxCallStackDepthConfig(slog.LevelError, 8),
+//	zlog.AutoSourceConfig(slog.LevelWarn, true),
+//	zlog.AutoSourceConfig(slog.LevelInfo, true),
+//	zlog.AutoSourceConfig(slog.LevelDebug, true),
+//	zlog.AutoCallStackConfig(slog.LevelDebug, true),
+//	zlog.MaxCallStackDepthConfig(slog.LevelDebug, 12),
+//
+// ))
+func SetConfig(config logConfig) {
 	globalConfig = config
 }
 
