@@ -47,18 +47,18 @@ type logConfig struct {
 	Error levelConfig // Configuration for Error level (default MaxCallStackDepth: 10)
 }
 
-type Configurable = func(config logConfig)
+type Configurable = func(config *logConfig)
 
 func Configure(configs ...Configurable) logConfig {
 	conf := logConfig{}
 	for _, configFunc := range configs {
-		configFunc(conf)
+		configFunc(&conf)
 	}
 	return conf
 }
 
 func AutoSourceConfig(level slog.Level, autoSource bool) Configurable {
-	return func(config logConfig) {
+	return func(config *logConfig) {
 		switch level {
 		case slog.LevelDebug:
 			config.Debug.AutoSource = autoSource
@@ -73,7 +73,7 @@ func AutoSourceConfig(level slog.Level, autoSource bool) Configurable {
 }
 
 func AutoCallStackConfig(level slog.Level, autoCallStack bool) Configurable {
-	return func(config logConfig) {
+	return func(config *logConfig) {
 		switch level {
 		case slog.LevelDebug:
 			config.Debug.AutoCallStack = autoCallStack
@@ -88,7 +88,7 @@ func AutoCallStackConfig(level slog.Level, autoCallStack bool) Configurable {
 }
 
 func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
-	return func(config logConfig) {
+	return func(config *logConfig) {
 		switch level {
 		case slog.LevelDebug:
 			config.Debug.MaxCallStackDepth = maxDepth
