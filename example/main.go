@@ -13,20 +13,17 @@ func processOrder(orderID string) error {
 }
 
 func processPayment() {
-	zlog.Info().Segment("payment", "process").Message("Payment işlemi başlatıldı")
+	zlog.Info().Segment("payment", "process").Message("Payment processing initiated")
 }
 
 func main() {
-	// Önce config set etmeden test edelim
-	println("=== CONFIG SET ETMEDEN ===")
-	zlog.Error().Err(errors.New("test error")).Msg("Bu error için source ve callstack yok")
-	zlog.Warn().Message("Bu warn için source bilgisi yok")
-	zlog.Debug().Message("Bu debug için source ve callstack yok")
-	zlog.Info().Message("Bu info için source bilgisi yok")
+	println("=== BEFORE CONFIG ===")
+	zlog.Error().Err(errors.New("test error")).Msg("No source or callstack for this error")
+	zlog.Warn().Message("No source info for this warning")
+	zlog.Debug().Message("No source or callstack for this debug")
+	zlog.Info().Message("No source info for this info")
 
-	println("\n=== CONFIG SET ETTIKTEN SONRA ===")
-	// Global config'i set et - Yeni temiz yapı!
-
+	println("\n=== AFTER CONFIG ===")
 	zlog.SetConfig(zlog.Configure(
 		zlog.AutoSourceConfig(slog.LevelError, true),
 		zlog.AutoCallStackConfig(slog.LevelError, true),
@@ -38,21 +35,15 @@ func main() {
 		zlog.MaxCallStackDepthConfig(slog.LevelDebug, 12),
 	))
 
-	// Şimdi aynı testleri tekrar çalıştır
-	zlog.Error().Err(errors.New("test error")).Msg("Şimdi error için otomatik source ve callstack var")
-	zlog.Warn().Message("Şimdi warn için otomatik source bilgisi var")
-	zlog.Debug().Message("Şimdi debug için otomatik source ve callstack var")
-	zlog.Info().Message("Şimdi info için otomatik source bilgisi var")
+	zlog.Error().Err(errors.New("test error")).Msg("Now error has automatic source and callstack")
+	zlog.Warn().Message("Now warning has automatic source info")
+	zlog.Debug().Message("Now debug has automatic source and callstack")
+	zlog.Info().Message("Now info has automatic source info")
 
-	println("\n=== GERÇEKÇİ SENARYO ===")
-	// Gerçekçi bir senaryo test et
+	println("\n=== REALISTIC SCENARIO ===")
 	ctx := context.WithValue(context.Background(), "userID", "12345")
 	ctx = context.WithValue(ctx, "requestID", "req-abc-123")
 
-	// Kullanıcının orijinal verbose kodu:
-	// zlog.Error().WithSource().WithCallStack().Segment(command.Name.String()).Error(err).Messagef("taskId: %s", command.Task.Id)
-
-	// Şimdi sadeleşmiş versiyonu:
 	if err := processOrder("order-456"); err != nil {
 		zlog.Error().
 			Context(ctx, []string{"userID", "requestID"}).
@@ -61,12 +52,10 @@ func main() {
 			Msgf("taskId: %s", "task-789")
 	}
 
-	// Diğer fonksiyonlardan log çıktıları
 	processPayment()
 
-	// Hata olmayan durumlar
 	zlog.Info().
 		Context(ctx, []string{"userID", "requestID"}).
 		Segment("user", "profile", "update").
-		Message("Kullanıcı profili başarıyla güncellendi")
+		Message("User profile updated successfully")
 }
