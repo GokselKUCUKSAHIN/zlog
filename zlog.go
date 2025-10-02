@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,7 +14,8 @@ import (
 type ZLogger interface {
 	Context(ctx context.Context, keys []string) ZLogger
 	Segment(mainSegment string, detail ...string) ZLogger
-	Error(err error) ZLogger
+	WithError(err error) ZLogger
+	Err(err error) ZLogger
 	Alert() ZLogger
 	WithSource() ZLogger
 	WithCallStack() ZLogger
@@ -31,11 +33,90 @@ type zlogImpl struct {
 	maxCallStackDepth int
 }
 
+// levelConfig holds configuration for a specific log level
+type levelConfig struct {
+	AutoSource        bool // Automatically add source information
+	AutoCallStack     bool // Automatically add call stack information
+	MaxCallStackDepth int  // Max call stack depth (0 = use default)
+}
+
+// logConfig holds global configuration for automatic features
+type logConfig struct {
+	Debug levelConfig // Configuration for Debug level (default MaxCallStackDepth: 20)
+	Info  levelConfig // Configuration for Info level (default MaxCallStackDepth: 5)
+	Warn  levelConfig // Configuration for Warn level (default MaxCallStackDepth: 5)
+	Error levelConfig // Configuration for Error level (default MaxCallStackDepth: 10)
+}
+
+type Configurable = func(config *logConfig)
+
+func Configure(configs ...Configurable) logConfig {
+	conf := logConfig{}
+	for _, configFunc := range configs {
+		configFunc(&conf)
+	}
+	return conf
+}
+
+func AutoSourceConfig(level slog.Level, autoSource bool) Configurable {
+	return func(config *logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.AutoSource = autoSource
+		case slog.LevelInfo:
+			config.Info.AutoSource = autoSource
+		case slog.LevelWarn:
+			config.Warn.AutoSource = autoSource
+		case slog.LevelError:
+			config.Error.AutoSource = autoSource
+		}
+	}
+}
+
+func AutoCallStackConfig(level slog.Level, autoCallStack bool) Configurable {
+	return func(config *logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.AutoCallStack = autoCallStack
+		case slog.LevelInfo:
+			config.Info.AutoCallStack = autoCallStack
+		case slog.LevelWarn:
+			config.Warn.AutoCallStack = autoCallStack
+		case slog.LevelError:
+			config.Error.AutoCallStack = autoCallStack
+		}
+	}
+}
+
+func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
+	return func(config *logConfig) {
+		switch level {
+		case slog.LevelDebug:
+			config.Debug.MaxCallStackDepth = maxDepth
+		case slog.LevelInfo:
+			config.Info.MaxCallStackDepth = maxDepth
+		case slog.LevelWarn:
+			config.Warn.MaxCallStackDepth = maxDepth
+		case slog.LevelError:
+			config.Error.MaxCallStackDepth = maxDepth
+		}
+	}
+}
+
 var (
-	debugLogger *slog.Logger
-	infoLogger  *slog.Logger
-	warnLogger  *slog.Logger
-	errorLogger *slog.Logger
+	debugLogger  *slog.Logger
+	infoLogger   *slog.Logger
+	warnLogger   *slog.Logger
+	errorLogger  *slog.Logger
+	globalConfig logConfig
+
+	// Default call stack depths for each log level
+	defaultCallStackDepths = map[slog.Level]int{
+		slog.LevelDebug: 20,
+		slog.LevelInfo:  5,
+		slog.LevelWarn:  5,
+		slog.LevelError: 10,
+	}
 )
 
 func init() {
@@ -62,64 +143,93 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 	return slog.New(jsonHandler)
 }
 
+// SetConfig configures global auto-features for all loggers.
+// This should be called once in main() to set the desired automatic behaviors.
+//
+// Example:
+//
+// zlog.SetConfig(zlog.Configure(
+//
+//	zlog.AutoSourceConfig(slog.LevelError, true),
+//	zlog.AutoCallStackConfig(slog.LevelError, true),
+//	zlog.MaxCallStackDepthConfig(slog.LevelError, 8),
+//	zlog.AutoSourceConfig(slog.LevelWarn, true),
+//	zlog.AutoSourceConfig(slog.LevelInfo, true),
+//	zlog.AutoSourceConfig(slog.LevelDebug, true),
+//	zlog.AutoCallStackConfig(slog.LevelDebug, true),
+//	zlog.MaxCallStackDepthConfig(slog.LevelDebug, 12),
+//
+// ))
+func SetConfig(config logConfig) {
+	globalConfig = config
+}
+
 // Debug returns a new logger instance at Debug level.
 // Debug level is used for detailed troubleshooting and development information.
-// The call stack depth is set to 20 for comprehensive debugging.
+// The call stack depth is configurable (default: 20) for comprehensive debugging.
 //
 // Example:
 //
 //	Debug().Message("Processing item details")
 //	// Output: {"level":"debug","time":"2024-03-07T10:00:00Z","message":"Processing item details"}
 func Debug() ZLogger {
-	return &zlogImpl{
+	level := slog.LevelDebug
+	z := &zlogImpl{
 		logger:            debugLogger,
-		maxCallStackDepth: 20,
+		maxCallStackDepth: getMaxCallStackDepth(level),
 	}
+	return z.applyAutoFeatures(level)
 }
 
 // Info returns a new logger instance at Info level.
 // Info level is used for general operational entries about what's going on inside the application.
-// The call stack depth is set to 5 for basic tracing.
+// The call stack depth is configurable (default: 5) for basic tracing.
 //
 // Example:
 //
 //	Info().Message("Application started successfully")
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","message":"Application started successfully"}
 func Info() ZLogger {
-	return &zlogImpl{
+	level := slog.LevelInfo
+	z := &zlogImpl{
 		logger:            infoLogger,
-		maxCallStackDepth: 5,
+		maxCallStackDepth: getMaxCallStackDepth(level),
 	}
+	return z.applyAutoFeatures(level)
 }
 
 // Warn returns a new logger instance at Warn level.
 // Warn level is used for potentially harmful situations and recoverable errors.
-// The call stack depth is set to 5 for basic tracing.
+// The call stack depth is configurable (default: 5) for basic tracing.
 //
 // Example:
 //
 //	Warn().Message("High memory usage detected")
 //	// Output: {"level":"warn","time":"2024-03-07T10:00:00Z","message":"High memory usage detected"}
 func Warn() ZLogger {
-	return &zlogImpl{
+	level := slog.LevelWarn
+	z := &zlogImpl{
 		logger:            warnLogger,
-		maxCallStackDepth: 5,
+		maxCallStackDepth: getMaxCallStackDepth(level),
 	}
+	return z.applyAutoFeatures(level)
 }
 
 // Error returns a new logger instance at Error level.
 // Error level is used for errors that should be investigated.
-// The call stack depth is set to 10 for detailed error tracing.
+// The call stack depth is configurable (default: 10) for detailed error tracing.
 //
 // Example:
 //
 //	Error().Error(err).Message("Failed to process request")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection refused","message":"Failed to process request"}
 func Error() ZLogger {
-	return &zlogImpl{
+	level := slog.LevelError
+	z := &zlogImpl{
 		logger:            errorLogger,
-		maxCallStackDepth: 10,
+		maxCallStackDepth: getMaxCallStackDepth(level),
 	}
+	return z.applyAutoFeatures(level)
 }
 
 // Panic immediately panics with the given message.
@@ -194,7 +304,7 @@ func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 	return z.appendAttr(slog.String("segment", mainSegment))
 }
 
-// Error adds error information to the log entry.
+// WithError adds error information to the log entry.
 // It extracts the error message and adds it as 'error_msg' field.
 // If the error implements additional interfaces (like stack traces),
 // only the Error() string is captured.
@@ -202,10 +312,22 @@ func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 // Example:
 //
 //	err := errors.New("connection timeout")
-//	Error().Error(err).Message("Database operation failed")
+//	Error().WithError(err).Message("Database operation failed")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
-func (z *zlogImpl) Error(err error) ZLogger {
+func (z *zlogImpl) WithError(err error) ZLogger {
 	return z.appendAttr(slog.String("error_msg", err.Error()))
+}
+
+// Err is an alias for WithError.
+// It provides a shorter method name for convenience.
+//
+// Example:
+//
+//	err := errors.New("connection timeout")
+//	Error().Err(err).Message("Database operation failed")
+//	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
+func (z *zlogImpl) Err(err error) ZLogger {
+	return z.WithError(err)
 }
 
 // WithSource adds the caller's information to the log entry.
@@ -217,14 +339,16 @@ func (z *zlogImpl) Error(err error) ZLogger {
 //	Info().WithSource().Message("Processing payment")
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","source":"payment.ProcessTransaction @ /app/payment.go:42","message":"Processing payment"}
 func (z *zlogImpl) WithSource() ZLogger {
-	return z.appendAttr(slog.String("source", getSourceString(2)))
+	source, ok := getSourceString(2)
+	if !ok {
+		return z
+	}
+	return z.appendAttr(slog.String("source", source))
 }
 
 // WithCallStack adds the call stack information to the log entry.
-// The depth of the stack trace depends on the logger's maxCallStackDepth setting:
-// - Debug: 20 levels
-// - Error: 10 levels
-// - Info/Warn: 5 levels
+// The depth of the stack trace depends on the logger's maxCallStackDepth setting
+// which can be configured globally (defaults: Debug=20, Error=10, Info/Warn=5).
 // The trace stops when it reaches the main function or the maximum depth.
 //
 // Example:
@@ -234,8 +358,8 @@ func (z *zlogImpl) WithSource() ZLogger {
 func (z *zlogImpl) WithCallStack() ZLogger {
 	callStack := make([]string, 0)
 	for skip := 2; skip < z.maxCallStackDepth; skip++ {
-		current := getSourceString(skip)
-		if current == "# @ :0" {
+		current, ok := getSourceString(skip)
+		if !ok {
 			continue
 		}
 		callStack = append(callStack, current)
@@ -354,13 +478,101 @@ func (z *zlogImpl) appendAttrs(attrs ...any) ZLogger {
 	return z
 }
 
-func getSourceString(skip int) string {
-	pc, file, line, _ := runtime.Caller(skip)
-	fn := runtime.FuncForPC(pc)
-	funcName := fn.Name()
-	moduleSeparator := strings.LastIndex(funcName, "/")
-	if moduleSeparator != -1 {
-		funcName = funcName[moduleSeparator+1:]
+// applyAutoFeatures applies automatic features based on global config
+func (z *zlogImpl) applyAutoFeatures(level slog.Level) ZLogger {
+	var autoSource, autoCallStack bool
+
+	switch level {
+	case slog.LevelDebug:
+		autoSource = globalConfig.Debug.AutoSource
+		autoCallStack = globalConfig.Debug.AutoCallStack
+	case slog.LevelInfo:
+		autoSource = globalConfig.Info.AutoSource
+		autoCallStack = globalConfig.Info.AutoCallStack
+	case slog.LevelWarn:
+		autoSource = globalConfig.Warn.AutoSource
+		autoCallStack = globalConfig.Warn.AutoCallStack
+	case slog.LevelError:
+		autoSource = globalConfig.Error.AutoSource
+		autoCallStack = globalConfig.Error.AutoCallStack
 	}
-	return fmt.Sprintf("#%s @ %s:%d", funcName, file, line)
+
+	if autoSource {
+		if source, ok := getSourceString(3); ok {
+			z.appendAttr(slog.String("source", source))
+		}
+	}
+
+	if autoCallStack {
+		callStack := make([]string, 0)
+		for skip := 3; skip < z.maxCallStackDepth; skip++ {
+			current, ok := getSourceString(skip)
+			if !ok {
+				continue
+			}
+			callStack = append(callStack, current)
+			if strings.HasPrefix(current, "#main.main") {
+				break
+			}
+		}
+		z.appendAttr(slog.Any("callstack", callStack))
+	}
+
+	return z
+}
+
+// getMaxCallStackDepth returns the max call stack depth for the given level
+// If config value is 0, returns the default value
+func getMaxCallStackDepth(level slog.Level) int {
+	switch level {
+	case slog.LevelDebug:
+		if globalConfig.Debug.MaxCallStackDepth > 0 {
+			return globalConfig.Debug.MaxCallStackDepth
+		}
+		return defaultCallStackDepths[level]
+	case slog.LevelInfo:
+		if globalConfig.Info.MaxCallStackDepth > 0 {
+			return globalConfig.Info.MaxCallStackDepth
+		}
+		return defaultCallStackDepths[level]
+	case slog.LevelWarn:
+		if globalConfig.Warn.MaxCallStackDepth > 0 {
+			return globalConfig.Warn.MaxCallStackDepth
+		}
+		return defaultCallStackDepths[level]
+	case slog.LevelError:
+		if globalConfig.Error.MaxCallStackDepth > 0 {
+			return globalConfig.Error.MaxCallStackDepth
+		}
+		return defaultCallStackDepths[level]
+	default:
+		return 5
+	}
+}
+
+func getSourceString(skip int) (string, bool) {
+	pc, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return "", false
+	}
+
+	var funcName string
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		funcName = "?"
+	} else {
+		funcName = fn.Name()
+		moduleSeparator := strings.LastIndex(funcName, "/")
+		if moduleSeparator != -1 {
+			funcName = funcName[moduleSeparator+1:]
+		}
+	}
+	var b strings.Builder
+	b.WriteByte('#')
+	b.WriteString(funcName)
+	b.WriteString(" @ ")
+	b.WriteString(file)
+	b.WriteByte(':')
+	b.WriteString(strconv.FormatInt(int64(line), 10))
+	return b.String(), true
 }
