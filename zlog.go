@@ -14,7 +14,8 @@ import (
 type ZLogger interface {
 	Context(ctx context.Context, keys []string) ZLogger
 	Segment(mainSegment string, detail ...string) ZLogger
-	Error(err error) ZLogger
+	WithError(err error) ZLogger
+	Err(err error) ZLogger
 	Alert() ZLogger
 	WithSource() ZLogger
 	WithCallStack() ZLogger
@@ -303,7 +304,7 @@ func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 	return z.appendAttr(slog.String("segment", mainSegment))
 }
 
-// Error adds error information to the log entry.
+// WithError adds error information to the log entry.
 // It extracts the error message and adds it as 'error_msg' field.
 // If the error implements additional interfaces (like stack traces),
 // only the Error() string is captured.
@@ -311,10 +312,22 @@ func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 // Example:
 //
 //	err := errors.New("connection timeout")
-//	Error().Error(err).Message("Database operation failed")
+//	Error().WithError(err).Message("Database operation failed")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
-func (z *zlogImpl) Error(err error) ZLogger {
+func (z *zlogImpl) WithError(err error) ZLogger {
 	return z.appendAttr(slog.String("error_msg", err.Error()))
+}
+
+// Err is an alias for WithError.
+// It provides a shorter method name for convenience.
+//
+// Example:
+//
+//	err := errors.New("connection timeout")
+//	Error().Err(err).Message("Database operation failed")
+//	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
+func (z *zlogImpl) Err(err error) ZLogger {
+	return z.WithError(err)
 }
 
 // WithSource adds the caller's information to the log entry.
