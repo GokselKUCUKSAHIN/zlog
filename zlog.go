@@ -486,7 +486,7 @@ func (z *zlogImpl) applyAutoFeatures(level slog.Level) ZLogger {
 
 	if autoSource {
 		if source, ok := getSourceString(3); ok {
-			z.attrs = append(z.attrs, slog.String("source", source))
+			z.appendAttr(slog.String("source", source))
 		}
 	}
 
@@ -502,7 +502,7 @@ func (z *zlogImpl) applyAutoFeatures(level slog.Level) ZLogger {
 				break
 			}
 		}
-		z.attrs = append(z.attrs, slog.Any("callstack", callStack))
+		z.appendAttr(slog.Any("callstack", callStack))
 	}
 
 	return z
