@@ -18,6 +18,7 @@ type ZLogger interface {
 	Err(err error) ZLogger
 	Alert() ZLogger
 	WithSource() ZLogger
+	WithSourceSkip(skip int) ZLogger
 	WithCallStack() ZLogger
 	Message(message string)
 	Msg(message string)
@@ -340,6 +341,22 @@ func (z *zlogImpl) Err(err error) ZLogger {
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","source":"payment.ProcessTransaction @ /app/payment.go:42","message":"Processing payment"}
 func (z *zlogImpl) WithSource() ZLogger {
 	source, ok := getSourceString(2)
+	if !ok {
+		return z
+	}
+	return z.appendAttr(slog.String("source", source))
+}
+
+// WithSourceSkip adds the caller's information to the log entry.
+// It includes the calling function's name, file path, and line number.
+// This is useful for debugging and tracing the exact origin of log messages.
+//
+// Example:
+//
+//	Info().WithSourceSkip(3).Message("Processing payment")
+//	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","source":"payment.ProcessTransaction @ /app/payment.go:42","message":"Processing payment"}
+func (z *zlogImpl) WithSourceSkip(skip int) ZLogger {
+	source, ok := getSourceString(2 + skip)
 	if !ok {
 		return z
 	}
