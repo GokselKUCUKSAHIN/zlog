@@ -19,7 +19,7 @@ func processPayment() {
 func main() {
 	// Önce config set etmeden test edelim
 	println("=== CONFIG SET ETMEDEN ===")
-	zlog.Error().Error(errors.New("test error")).Message("Bu error için source ve callstack yok")
+	zlog.Error().Err(errors.New("test error")).Msg("Bu error için source ve callstack yok")
 	zlog.Warn().Message("Bu warn için source bilgisi yok")
 	zlog.Debug().Message("Bu debug için source ve callstack yok")
 	zlog.Info().Message("Bu info için source bilgisi yok")
@@ -39,7 +39,7 @@ func main() {
 	))
 
 	// Şimdi aynı testleri tekrar çalıştır
-	zlog.Error().Error(errors.New("test error")).Message("Şimdi error için otomatik source ve callstack var")
+	zlog.Error().Err(errors.New("test error")).Msg("Şimdi error için otomatik source ve callstack var")
 	zlog.Warn().Message("Şimdi warn için otomatik source bilgisi var")
 	zlog.Debug().Message("Şimdi debug için otomatik source ve callstack var")
 	zlog.Info().Message("Şimdi info için otomatik source bilgisi var")
@@ -57,8 +57,8 @@ func main() {
 		zlog.Error().
 			Context(ctx, []string{"userID", "requestID"}).
 			Segment("order", "process").
-			Error(err).
-			Messagef("taskId: %s", "task-789")
+			Err(err).
+			Msgf("taskId: %s", "task-789")
 	}
 
 	// Diğer fonksiyonlardan log çıktıları
