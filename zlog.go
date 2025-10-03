@@ -328,7 +328,7 @@ func (z *zlogImpl) WithError(err error) ZLogger {
 //	Error().Err(err).Message("Database operation failed")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
 func (z *zlogImpl) Err(err error) ZLogger {
-	return z.WithError(err)
+	return z.appendAttr(slog.String("error_msg", err.Error()))
 }
 
 // WithSource adds the caller's information to the log entry.
