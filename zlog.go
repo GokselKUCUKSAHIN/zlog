@@ -296,6 +296,7 @@ func (z *zlogImpl) KeyValue(key, value string) ZLogger {
 // Segment adds a hierarchical path to the log entry.
 // Paths help categorize logs by application area, component, or processing stage.
 // Multiple detail segments are joined with "/" to create a hierarchical path structure.
+// Empty strings in detail segments are filtered out to avoid double slashes.
 //
 // Example:
 //
@@ -303,7 +304,15 @@ func (z *zlogImpl) KeyValue(key, value string) ZLogger {
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","segment":"api/users/create","message":"New user registration"}
 func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 	if len(detail) > 0 {
-		mainSegment += "/" + strings.Join(detail, "/")
+		validDetails := make([]string, 0, len(detail))
+		for _, d := range detail {
+			if len(d) > 0 {
+				validDetails = append(validDetails, d)
+			}
+		}
+		if len(validDetails) > 0 {
+			mainSegment += "/" + strings.Join(validDetails, "/")
+		}
 	}
 	return z.appendAttr(slog.String("segment", mainSegment))
 }
