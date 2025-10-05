@@ -3,6 +3,7 @@ package zlog
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -111,6 +112,7 @@ var (
 	warnLogger   *slog.Logger
 	errorLogger  *slog.Logger
 	globalConfig logConfig
+	logOutput    io.Writer = os.Stdout // Can be overridden for testing
 
 	// Default call stack depths for each log level
 	defaultCallStackDepths = map[slog.Level]int{
@@ -138,7 +140,7 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 		}
 		return attr
 	}
-	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	jsonHandler := slog.NewJSONHandler(logOutput, &slog.HandlerOptions{
 		AddSource:   false,
 		ReplaceAttr: replaceAttr,
 	})
