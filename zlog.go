@@ -20,6 +20,7 @@ type ZLogger interface {
 	WithSource() ZLogger
 	WithSourceSkip(skip int) ZLogger
 	WithCallStack() ZLogger
+	KeyValue(key, value string) ZLogger
 	Message(message string)
 	Msg(message string)
 	Messagef(format string, args ...any)
@@ -316,6 +317,9 @@ func (z *zlogImpl) Segment(mainSegment string, detail ...string) ZLogger {
 //	Error().WithError(err).Message("Database operation failed")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
 func (z *zlogImpl) WithError(err error) ZLogger {
+	if err == nil {
+		return z
+	}
 	return z.appendAttr(slog.String("error_msg", err.Error()))
 }
 
@@ -328,6 +332,9 @@ func (z *zlogImpl) WithError(err error) ZLogger {
 //	Error().Err(err).Message("Database operation failed")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection timeout","message":"Database operation failed"}
 func (z *zlogImpl) Err(err error) ZLogger {
+	if err == nil {
+		return z
+	}
 	return z.appendAttr(slog.String("error_msg", err.Error()))
 }
 
@@ -449,6 +456,7 @@ func (z *zlogImpl) Msgf(format string, args ...any) {
 // This is a terminal operation that should be used only when the application cannot continue running.
 // After calling Fatal, the program will exit immediately.
 // The method ensures that the log message is written to the output before exiting.
+// Note: Deferred functions will NOT be executed as os.Exit(1) is called directly.
 //
 // Example:
 //
@@ -469,6 +477,7 @@ func (z *zlogImpl) Fatal(message string) {
 // This is a terminal operation that should be used only when the application cannot continue running.
 // After calling Fatalf, the program will exit immediately.
 // The method ensures that the log message is written to the output before exiting.
+// Note: Deferred functions will NOT be executed as os.Exit(1) is called directly.
 //
 // Example:
 //
