@@ -1,0 +1,22 @@
+{
+    "debug": {
+        "autoSource": true,
+        "autoCallStack": true,
+        "maxCallStackDepth": 20
+    },
+    "info": {
+        "autoSource": true,
+        "autoCallStack": false,
+        "maxCallStackDepth": 5
+    },
+    "warn": {
+        "autoSource": true,
+        "autoCallStack": false,
+        "maxCallStackDepth": 5
+    },
+    "error": {
+        "autoSource": true,
+        "autoCallStack": false,
+        "maxCallStackDepth": 10
+    }
+}
