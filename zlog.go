@@ -63,6 +63,10 @@ func Configure(configs ...Configurable) logConfig {
 }
 
 func ConfigureFromJSONFile(configPath string) logConfig {
+	if !strings.HasSuffix(configPath, ".json") {
+		configPath += ".json"
+	}
+
 	var conf logConfig
 	data, err := os.ReadFile(configPath)
 	if err != nil {
