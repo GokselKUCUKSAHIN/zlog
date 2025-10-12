@@ -2,6 +2,7 @@ package zlog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,17 +39,17 @@ type zlogImpl struct {
 
 // levelConfig holds configuration for a specific log level
 type levelConfig struct {
-	AutoSource        bool // Automatically add source information
-	AutoCallStack     bool // Automatically add call stack information
-	MaxCallStackDepth int  // Max call stack depth (0 = use default)
+	AutoSource        bool `json:"autoSource"`        // Automatically add source information
+	AutoCallStack     bool `json:"autoCallStack"`     // Automatically add call stack information
+	MaxCallStackDepth int  `json:"maxCallStackDepth"` // Max call stack depth (0 = use default)
 }
 
 // logConfig holds global configuration for automatic features
 type logConfig struct {
-	Debug levelConfig // Configuration for Debug level (default MaxCallStackDepth: 20)
-	Info  levelConfig // Configuration for Info level (default MaxCallStackDepth: 5)
-	Warn  levelConfig // Configuration for Warn level (default MaxCallStackDepth: 5)
-	Error levelConfig // Configuration for Error level (default MaxCallStackDepth: 10)
+	Debug levelConfig `json:"debug"` // Configuration for Debug level (default MaxCallStackDepth: 20)
+	Info  levelConfig `json:"info"`  // Configuration for Info level (default MaxCallStackDepth: 5)
+	Warn  levelConfig `json:"warn"`  // Configuration for Warn level (default MaxCallStackDepth: 5)
+	Error levelConfig `json:"error"` // Configuration for Error level (default MaxCallStackDepth: 10)
 }
 
 type Configurable = func(config *logConfig)
@@ -57,6 +58,21 @@ func Configure(configs ...Configurable) logConfig {
 	conf := logConfig{}
 	for _, configFunc := range configs {
 		configFunc(&conf)
+	}
+	return conf
+}
+
+func ConfigureFromJSONFile(configPath string) logConfig {
+	var conf logConfig
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occured while reading zlog config file. Default configurations applied")
+		return logConfig{}
+	}
+
+	if err = json.Unmarshal(data, &conf); err != nil {
+		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occured while json unmarshal zlog config file. Default configurations applied")
+		return logConfig{}
 	}
 	return conf
 }

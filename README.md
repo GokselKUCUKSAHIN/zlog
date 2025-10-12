@@ -12,6 +12,7 @@
 - 📚 **Smart Call Stacks** - Automatic stack traces with configurable depth
 - 🔍 **Context Integration** - Extract and log context values effortlessly
 - 🏗️ **Hierarchical Segments** - Organize logs by component/feature paths
+- 📁 **JSON Configuration** - Load settings from external files for easy management
 - 🚀 **Zero Dependencies** - Built on Go's standard library
 - 📦 **JSON Output** - Structured logs ready for aggregation tools
 
@@ -91,6 +92,46 @@ zlog.SetConfig(zlog.Configure(
 ```json
 {"level":"ERROR","msg":"Database error","source":"#main.processOrder @ /app/order.go:42","callstack":["#main.processOrder @ /app/order.go:42","#main.main @ /app/main.go:15"],"error_msg":"connection refused"}
 ```
+
+### Configuration from JSON File
+
+Load configuration from a JSON file for easier management:
+
+```go
+// Load config from file
+zlog.SetConfig(zlog.ConfigureFromJSONFile("log-config.json"))
+```
+
+**Example JSON configuration file:**
+```json
+{
+    "debug": {
+        "autoSource": true,
+        "autoCallStack": true,
+        "maxCallStackDepth": 20
+    },
+    "info": {
+        "autoSource": true,
+        "autoCallStack": false,
+        "maxCallStackDepth": 5
+    },
+    "warn": {
+        "autoSource": true,
+        "autoCallStack": false,
+        "maxCallStackDepth": 5
+    },
+    "error": {
+        "autoSource": true,
+        "autoCallStack": true,
+        "maxCallStackDepth": 10
+    }
+}
+```
+
+This approach allows you to:
+- Change configuration without recompiling
+- Maintain different configs for different environments
+- Share configuration across team members
 
 ### Context Values
 
@@ -253,6 +294,7 @@ func processOrder(ctx context.Context, orderID string) error {
 ### Global Functions
 - `SetConfig(config)` - Configure automatic features
 - `Configure(configs...)` - Create configuration
+- `ConfigureFromJSONFile(path)` - Load configuration from JSON file
 - `AutoSourceConfig(level, enabled)` - Auto-add source
 - `AutoCallStackConfig(level, enabled)` - Auto-add stack
 - `MaxCallStackDepthConfig(level, depth)` - Set stack depth
@@ -278,6 +320,16 @@ zlog.SetConfig(zlog.Configure(
     zlog.AutoCallStackConfig(slog.LevelError, true),
     zlog.AutoCallStackConfig(slog.LevelDebug, true),
 ))
+```
+
+### Environment-Based with JSON
+```go
+// Load different configs based on environment
+configFile := os.Getenv("LOG_CONFIG_PATH")
+if configFile == "" {
+    configFile = "log-config.json" // default
+}
+zlog.SetConfig(zlog.ConfigureFromJSONFile(configFile))
 ```
 
 ### Performance-Critical
