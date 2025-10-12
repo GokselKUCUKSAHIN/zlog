@@ -13,6 +13,7 @@
 - 🔍 **Context Integration** - Extract and log context values effortlessly
 - 🏗️ **Hierarchical Segments** - Organize logs by component/feature paths
 - 📁 **JSON Configuration** - Load settings from external files for easy management
+- 📝 **Flexible Output** - Write to files, network, or any io.Writer destination
 - 🚀 **Zero Dependencies** - Built on Go's standard library
 - 📦 **JSON Output** - Structured logs ready for aggregation tools
 
@@ -132,6 +133,30 @@ This approach allows you to:
 - Change configuration without recompiling
 - Maintain different configs for different environments
 - Share configuration across team members
+
+### Custom Output Writer
+
+Redirect log output to files, network connections, or any `io.Writer`:
+
+```go
+// Write to a file
+file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+if err != nil {
+    log.Fatal(err)
+}
+defer file.Close()
+zlog.SetOutputWriter(file)
+
+// Write to multiple destinations
+multiWriter := io.MultiWriter(os.Stdout, file)
+zlog.SetOutputWriter(multiWriter)
+
+// Write to a buffer for testing
+var buf bytes.Buffer
+zlog.SetOutputWriter(&buf)
+```
+
+By default, logs are written to `os.Stdout`.
 
 ### Context Values
 
@@ -295,6 +320,7 @@ func processOrder(ctx context.Context, orderID string) error {
 - `SetConfig(config)` - Configure automatic features
 - `Configure(configs...)` - Create configuration
 - `ConfigureFromJSONFile(path)` - Load configuration from JSON file
+- `SetOutputWriter(writer)` - Set custom output destination (io.Writer)
 - `AutoSourceConfig(level, enabled)` - Auto-add source
 - `AutoCallStackConfig(level, enabled)` - Auto-add stack
 - `MaxCallStackDepthConfig(level, depth)` - Set stack depth
@@ -330,6 +356,25 @@ if configFile == "" {
     configFile = "log-config.json" // default
 }
 zlog.SetConfig(zlog.ConfigureFromJSONFile(configFile))
+```
+
+### File-Based Logging
+```go
+// Write logs to a file with rotation support
+file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+if err != nil {
+    log.Fatal(err)
+}
+defer file.Close()
+
+// Send logs to both console and file
+multiWriter := io.MultiWriter(os.Stdout, file)
+zlog.SetOutputWriter(multiWriter)
+
+zlog.SetConfig(zlog.Configure(
+    zlog.AutoSourceConfig(slog.LevelError, true),
+    zlog.AutoCallStackConfig(slog.LevelError, true),
+))
 ```
 
 ### Performance-Critical

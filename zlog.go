@@ -139,11 +139,16 @@ var (
 	}
 )
 
-func init() {
+// initializeLoggers creates all loggers with the current logOutput
+func initializeLoggers() {
 	debugLogger = initNewSlog(slog.LevelDebug)
 	infoLogger = initNewSlog(slog.LevelInfo)
 	warnLogger = initNewSlog(slog.LevelWarn)
 	errorLogger = initNewSlog(slog.LevelError)
+}
+
+func init() {
+	initializeLoggers()
 }
 
 func initNewSlog(customLevel slog.Level) *slog.Logger {
@@ -182,6 +187,28 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 // ))
 func SetConfig(config logConfig) {
 	globalConfig = config
+}
+
+// SetOutputWriter sets the output writer for all loggers.
+// This allows redirecting log output to files, network connections, or any io.Writer.
+// By default, logs are written to os.Stdout.
+//
+// Example:
+//
+//	// Write to a file
+//	file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer file.Close()
+//	zlog.SetOutputWriter(file)
+//
+//	// Write to multiple destinations
+//	multiWriter := io.MultiWriter(os.Stdout, file)
+//	zlog.SetOutputWriter(multiWriter)
+func SetOutputWriter(writer io.Writer) {
+	logOutput = writer
+	initializeLoggers()
 }
 
 // Debug returns a new logger instance at Debug level.
