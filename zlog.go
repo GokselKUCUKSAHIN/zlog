@@ -70,12 +70,12 @@ func ConfigureFromJSONFile(configPath string) logConfig {
 	var conf logConfig
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occured while reading zlog config file. Default configurations applied")
+		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occurred while reading zlog config file. Default configurations applied")
 		return logConfig{}
 	}
 
 	if err = json.Unmarshal(data, &conf); err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occured while json unmarshal zlog config file. Default configurations applied")
+		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occurred while json unmarshal zlog config file. Default configurations applied")
 		return logConfig{}
 	}
 	return conf
