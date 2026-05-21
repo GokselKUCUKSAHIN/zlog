@@ -46,13 +46,35 @@ type levelConfig struct {
 
 // logConfig holds global configuration for automatic features
 type logConfig struct {
-	Debug levelConfig `json:"debug"` // Configuration for Debug level (default MaxCallStackDepth: 20)
-	Info  levelConfig `json:"info"`  // Configuration for Info level (default MaxCallStackDepth: 5)
-	Warn  levelConfig `json:"warn"`  // Configuration for Warn level (default MaxCallStackDepth: 5)
-	Error levelConfig `json:"error"` // Configuration for Error level (default MaxCallStackDepth: 10)
+	minLevel    slog.Level
+	minLevelSet bool
+	Debug       levelConfig `json:"debug"` // Configuration for Debug level (default MaxCallStackDepth: 20)
+	Info        levelConfig `json:"info"`  // Configuration for Info level (default MaxCallStackDepth: 5)
+	Warn        levelConfig `json:"warn"`  // Configuration for Warn level (default MaxCallStackDepth: 5)
+	Error       levelConfig `json:"error"` // Configuration for Error level (default MaxCallStackDepth: 10)
 }
 
 type Configurable = func(config *logConfig)
+
+type nopLogger struct{}
+
+var nopLog ZLogger = &nopLogger{}
+
+func (n *nopLogger) Context(_ context.Context, _ []string) ZLogger { return n }
+func (n *nopLogger) Segment(_ string, _ ...string) ZLogger         { return n }
+func (n *nopLogger) WithError(_ error) ZLogger                     { return n }
+func (n *nopLogger) Err(_ error) ZLogger                           { return n }
+func (n *nopLogger) Alert() ZLogger                                { return n }
+func (n *nopLogger) WithSource() ZLogger                           { return n }
+func (n *nopLogger) WithSourceSkip(_ int) ZLogger                  { return n }
+func (n *nopLogger) WithCallStack() ZLogger                        { return n }
+func (n *nopLogger) KeyValue(_, _ string) ZLogger                  { return n }
+func (n *nopLogger) Message(_ string)                              {}
+func (n *nopLogger) Msg(_ string)                                  {}
+func (n *nopLogger) Messagef(_ string, _ ...any)                   {}
+func (n *nopLogger) Msgf(_ string, _ ...any)                       {}
+func (n *nopLogger) Fatal(_ string)                                { os.Exit(1) }
+func (n *nopLogger) Fatalf(_ string, _ ...any)                     { os.Exit(1) }
 
 func Configure(configs ...Configurable) logConfig {
 	conf := logConfig{}
@@ -111,6 +133,15 @@ func AutoCallStackConfig(level slog.Level, autoCallStack bool) Configurable {
 	}
 }
 
+// MinLogLevelConfig sets the minimum log level. Levels below this are silently dropped.
+// Use SetMinLogLevel for runtime updates without rebuilding the full config.
+func MinLogLevelConfig(level slog.Level) Configurable {
+	return func(config *logConfig) {
+		config.minLevel = level
+		config.minLevelSet = true
+	}
+}
+
 func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
 	return func(config *logConfig) {
 		switch level {
@@ -127,6 +158,8 @@ func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
 }
 
 var (
+	globalMinLevel slog.LevelVar
+
 	debugLogger  *slog.Logger
 	infoLogger   *slog.Logger
 	warnLogger   *slog.Logger
@@ -152,6 +185,7 @@ func initializeLoggers() {
 }
 
 func init() {
+	globalMinLevel.Set(slog.LevelDebug) // default: all levels pass
 	initializeLoggers()
 }
 
@@ -191,6 +225,20 @@ func initNewSlog(customLevel slog.Level) *slog.Logger {
 // ))
 func SetConfig(config logConfig) {
 	globalConfig = config
+	if config.minLevelSet {
+		globalMinLevel.Set(config.minLevel)
+	}
+}
+
+// SetMinLogLevel updates the minimum log level at runtime. Goroutine-safe.
+// Levels below this value are silently dropped without any allocation.
+func SetMinLogLevel(level slog.Level) {
+	globalMinLevel.Set(level)
+}
+
+// GetMinLogLevel returns the current minimum log level.
+func GetMinLogLevel() slog.Level {
+	return globalMinLevel.Level()
 }
 
 // SetOutputWriter sets the output writer for all loggers.
@@ -224,6 +272,9 @@ func SetOutputWriter(writer io.Writer) {
 //	Debug().Message("Processing item details")
 //	// Output: {"level":"debug","time":"2024-03-07T10:00:00Z","message":"Processing item details"}
 func Debug() ZLogger {
+	if slog.LevelDebug < globalMinLevel.Level() {
+		return nopLog
+	}
 	level := slog.LevelDebug
 	z := &zlogImpl{
 		logger:            debugLogger,
@@ -241,6 +292,9 @@ func Debug() ZLogger {
 //	Info().Message("Application started successfully")
 //	// Output: {"level":"info","time":"2024-03-07T10:00:00Z","message":"Application started successfully"}
 func Info() ZLogger {
+	if slog.LevelInfo < globalMinLevel.Level() {
+		return nopLog
+	}
 	level := slog.LevelInfo
 	z := &zlogImpl{
 		logger:            infoLogger,
@@ -258,6 +312,9 @@ func Info() ZLogger {
 //	Warn().Message("High memory usage detected")
 //	// Output: {"level":"warn","time":"2024-03-07T10:00:00Z","message":"High memory usage detected"}
 func Warn() ZLogger {
+	if slog.LevelWarn < globalMinLevel.Level() {
+		return nopLog
+	}
 	level := slog.LevelWarn
 	z := &zlogImpl{
 		logger:            warnLogger,
@@ -275,6 +332,9 @@ func Warn() ZLogger {
 //	Error().Error(err).Message("Failed to process request")
 //	// Output: {"level":"error","time":"2024-03-07T10:00:00Z","error_msg":"connection refused","message":"Failed to process request"}
 func Error() ZLogger {
+	if slog.LevelError < globalMinLevel.Level() {
+		return nopLog
+	}
 	level := slog.LevelError
 	z := &zlogImpl{
 		logger:            errorLogger,
