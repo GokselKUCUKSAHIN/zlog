@@ -108,7 +108,7 @@ func ConfigureFromJSONFile(configPath string) logConfig {
 		}
 	})
 	if err := watcher.Start(); err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msg("Failed to start config file watcher")
+		warnLogger.Warn("failed to start config file watcher", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("file", configPath), slog.String("error_msg", err.Error()))
 	} else {
 		activeConfigWatcher = watcher
 	}
@@ -119,13 +119,13 @@ func ConfigureFromJSONFile(configPath string) logConfig {
 func parseConfigFile(configPath string) (logConfig, bool) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msg("An error occurred while reading zlog config file. Default configurations applied")
+		warnLogger.Warn("an error occurred while reading zlog config file. Default configurations applied", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("error_msg", err.Error()))
 		return logConfig{}, false
 	}
 
 	var conf logConfig
 	if err = json.Unmarshal(data, &conf); err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msg("An error occurred while json unmarshal zlog config file. Default configurations applied")
+		warnLogger.Warn("an error occurred while json unmarshal zlog config file. Default configurations applied", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("error_msg", err.Error()))
 		return logConfig{}, false
 	}
 	return conf, true
