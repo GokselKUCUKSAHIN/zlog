@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1487,4 +1489,483 @@ func TestEdgeCaseMultipleAutoFeatures(t *testing.T) {
 	if _, ok := logData["callstack"]; !ok {
 		t.Error("Expected callstack to be present")
 	}
+}
+
+// TestConfigureFromJSONFile_ValidFile tests loading config from a valid JSON file
+func TestConfigureFromJSONFile_ValidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+	configContent := `{
+          "logLevel": "WARN",
+          "debug": {"autoSource": true, "autoCallStack": false, "maxCallStackDepth": 15},
+          "info": {"autoSource": true, "autoCallStack": false, "maxCallStackDepth": 5},
+          "warn": {"autoSource": false, "autoCallStack": true, "maxCallStackDepth": 8},
+          "error": {"autoSource": true, "autoCallStack": true, "maxCallStackDepth": 12}
+      }`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	config := zlog.ConfigureFromJSONFile(configPath)
+	zlog.SetConfig(config)
+	buf.Reset()
+	zlog.Debug().Message("should not appear")
+	if buf.Len() != 0 {
+		t.Error("Expected Debug to be suppressed at WARN min level")
+	}
+	buf.Reset()
+	zlog.Info().Message("should not appear")
+	if buf.Len() != 0 {
+		t.Error("Expected Info to be suppressed at WARN min level")
+	}
+	buf.Reset()
+	zlog.Warn().Message("should appear")
+	if buf.Len() == 0 {
+		t.Error("Expected Warn to produce output at WARN min level")
+	}
+	buf.Reset()
+	zlog.Error().Message("should appear")
+	if buf.Len() == 0 {
+		t.Error("Expected Error to produce output at WARN min level")
+	}
+	zlog.SetMinLogLevel(slog.LevelDebug)
+	zlog.SetConfig(zlog.Configure())
+}
+
+// TestConfigureFromJSONFile_NonExistentFile tests loading from a non-existent file
+func TestConfigureFromJSONFile_NonExistentFile(t *testing.T) {
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	config := zlog.ConfigureFromJSONFile("/tmp/non_existent_config_xyz.json")
+	zlog.SetConfig(config)
+	buf.Reset()
+	zlog.Debug().Message("debug works")
+	if buf.Len() == 0 {
+		t.Error("Expected Debug to work with default config")
+	}
+	zlog.SetConfig(zlog.Configure())
+}
+
+// TestConfigureFromJSONFile_InvalidJSON tests loading from a file with invalid JSON
+func TestConfigureFromJSONFile_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "invalid.json")
+	err := os.WriteFile(configPath, []byte(`{invalid json content`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	config := zlog.ConfigureFromJSONFile(configPath)
+	zlog.SetConfig(config)
+	buf.Reset()
+	zlog.Info().Message("info works")
+	if buf.Len() == 0 {
+		t.Error("Expected Info to work with fallback default config")
+	}
+	zlog.SetConfig(zlog.Configure())
+}
+
+// TestConfigureFromJSONFile_WithoutExtension tests that .json is appended if missing
+func TestConfigureFromJSONFile_WithoutExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "myconfig.json")
+	configContent := `{"logLevel": "ERROR"}`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	pathWithoutExt := filepath.Join(tmpDir, "myconfig")
+	config := zlog.ConfigureFromJSONFile(pathWithoutExt)
+	zlog.SetConfig(config)
+	buf.Reset()
+	zlog.Warn().Message("should be suppressed")
+	if buf.Len() != 0 {
+		t.Error("Expected Warn to be suppressed at ERROR min level")
+	}
+	buf.Reset()
+	zlog.Error().Message("should appear")
+	if buf.Len() == 0 {
+		t.Error("Expected Error to produce output at ERROR min level")
+	}
+	zlog.SetMinLogLevel(slog.LevelDebug)
+	zlog.SetConfig(zlog.Configure())
+}
+
+// TestMinLogLevelConfig tests the MinLogLevelConfig configurable
+func TestMinLogLevelConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		minLevel    slog.Level
+		debugOutput bool
+		infoOutput  bool
+		warnOutput  bool
+		errorOutput bool
+	}{
+		{"MinLevel DEBUG - all pass", slog.LevelDebug, true, true, true, true},
+		{"MinLevel INFO - debug suppressed", slog.LevelInfo, false, true, true, true},
+		{"MinLevel WARN - debug and info suppressed", slog.LevelWarn, false, false, true, true},
+		{"MinLevel ERROR - only error passes", slog.LevelError, false, false, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.SetConfig(zlog.Configure(zlog.MinLogLevelConfig(tt.minLevel)))
+			buf.Reset()
+			zlog.Debug().Message("debug")
+			if (buf.Len() > 0) != tt.debugOutput {
+				t.Errorf("Debug output expected=%v, got output=%v", tt.debugOutput, buf.Len() > 0)
+			}
+			buf.Reset()
+			zlog.Info().Message("info")
+			if (buf.Len() > 0) != tt.infoOutput {
+				t.Errorf("Info output expected=%v, got output=%v", tt.infoOutput, buf.Len() > 0)
+			}
+			buf.Reset()
+			zlog.Warn().Message("warn")
+			if (buf.Len() > 0) != tt.warnOutput {
+				t.Errorf("Warn output expected=%v, got output=%v", tt.warnOutput, buf.Len() > 0)
+			}
+			buf.Reset()
+			zlog.Error().Message("error")
+			if (buf.Len() > 0) != tt.errorOutput {
+				t.Errorf("Error output expected=%v, got output=%v", tt.errorOutput, buf.Len() > 0)
+			}
+			zlog.SetMinLogLevel(slog.LevelDebug)
+			zlog.SetConfig(zlog.Configure())
+		})
+	}
+}
+
+// TestSetMinLogLevel tests runtime min level adjustment
+func TestSetMinLogLevel(t *testing.T) {
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	zlog.SetConfig(zlog.Configure())
+	buf.Reset()
+	zlog.Debug().Message("debug")
+	if buf.Len() == 0 {
+		t.Error("Expected Debug output before SetMinLogLevel")
+	}
+	zlog.SetMinLogLevel(slog.LevelWarn)
+	buf.Reset()
+	zlog.Debug().Message("debug")
+	if buf.Len() != 0 {
+		t.Error("Expected Debug to be suppressed after SetMinLogLevel(WARN)")
+	}
+	buf.Reset()
+	zlog.Info().Message("info")
+	if buf.Len() != 0 {
+		t.Error("Expected Info to be suppressed after SetMinLogLevel(WARN)")
+	}
+	buf.Reset()
+	zlog.Warn().Message("warn")
+	if buf.Len() == 0 {
+		t.Error("Expected Warn output after SetMinLogLevel(WARN)")
+	}
+	zlog.SetMinLogLevel(slog.LevelDebug)
+	zlog.SetConfig(zlog.Configure())
+}
+
+// TestGetMinLogLevel tests retrieving the current min level
+func TestGetMinLogLevel(t *testing.T) {
+	zlog.SetMinLogLevel(slog.LevelDebug)
+	if zlog.GetMinLogLevel() != slog.LevelDebug {
+		t.Errorf("Expected DEBUG, got %v", zlog.GetMinLogLevel())
+	}
+	zlog.SetMinLogLevel(slog.LevelError)
+	if zlog.GetMinLogLevel() != slog.LevelError {
+		t.Errorf("Expected ERROR, got %v", zlog.GetMinLogLevel())
+	}
+	zlog.SetMinLogLevel(slog.LevelDebug)
+}
+
+// TestNopLogger_AllMethodsReturnSafely tests that nopLogger doesn't panic
+func TestNopLogger_AllMethodsReturnSafely(t *testing.T) {
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	zlog.SetMinLogLevel(slog.LevelError + 1)
+	defer zlog.SetMinLogLevel(slog.LevelDebug)
+	ctx := context.WithValue(context.Background(), "key", "value")
+	testErr := errors.New("test error")
+	zlog.Debug().
+		Context(ctx, []string{"key"}).
+		Segment("test", "segment").
+		WithError(testErr).
+		Err(testErr).
+		Alert().
+		WithSource().
+		WithSourceSkip(1).
+		WithCallStack().
+		KeyValue("k", "v").
+		Message("should not appear")
+	zlog.Info().Msg("nop")
+	zlog.Warn().Messagef("nop %s", "test")
+	zlog.Error().Msgf("nop %d", 42)
+	if buf.Len() != 0 {
+		t.Errorf("Expected no output from nopLogger, got: %s", buf.String())
+	}
+}
+
+// TestNopLogger_MethodChaining tests that nopLogger supports full method chaining
+func TestNopLogger_MethodChaining(t *testing.T) {
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	zlog.SetMinLogLevel(slog.LevelError + 1)
+	defer zlog.SetMinLogLevel(slog.LevelDebug)
+	logger := zlog.Debug()
+	logger = logger.Context(context.Background(), []string{"a"})
+	logger = logger.Segment("a", "b")
+	logger = logger.WithError(errors.New("err"))
+	logger = logger.Err(errors.New("err"))
+	logger = logger.Alert()
+	logger = logger.WithSource()
+	logger = logger.WithSourceSkip(2)
+	logger = logger.WithCallStack()
+	logger = logger.KeyValue("x", "y")
+	logger.Message("done")
+	if buf.Len() != 0 {
+		t.Error("Expected no output from nopLogger chain")
+	}
+}
+
+// TestSegmentWithEmptyDetails tests Segment with empty strings in detail
+func TestSegmentWithEmptyDetails(t *testing.T) {
+	tests := []struct {
+		name     string
+		main     string
+		detail   []string
+		expected string
+	}{
+		{"Empty detail strings filtered", "api", []string{"", "users", "", "create"}, "api/users/create"},
+		{"All empty details", "api", []string{"", "", ""}, "api"},
+		{"No detail", "api", nil, "api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.Info().Segment(tt.main, tt.detail...).Message("test")
+			output := buf.String()
+			logData, err := parseLogOutput(output)
+			if err != nil {
+				t.Fatalf("Failed to parse log output: %v", err)
+			}
+			if segment, ok := logData["segment"].(string); !ok || segment != tt.expected {
+				t.Errorf("Expected segment=%q, got %v", tt.expected, logData["segment"])
+			}
+		})
+	}
+}
+
+// TestLogLevelFromJSON_AllLevels tests that logLevel field in JSON config sets min level
+func TestLogLevelFromJSON_AllLevels(t *testing.T) {
+	tests := []struct {
+		name     string
+		logLevel string
+		expected slog.Level
+	}{
+		{"debug level", "DEBUG", slog.LevelDebug},
+		{"debug lowercase", "debug", slog.LevelDebug},
+		{"info level", "INFO", slog.LevelInfo},
+		{"info lowercase", "info", slog.LevelInfo},
+		{"warn level", "WARN", slog.LevelWarn},
+		{"warn lowercase", "warn", slog.LevelWarn},
+		{"error level", "ERROR", slog.LevelError},
+		{"error lowercase", "error", slog.LevelError},
+		{"unknown defaults to info", "UNKNOWN", slog.LevelInfo},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.json")
+			configContent := fmt.Sprintf(`{"logLevel": "%s"}`, tt.logLevel)
+			err := os.WriteFile(configPath, []byte(configContent), 0644)
+			if err != nil {
+				t.Fatalf("Failed to write config: %v", err)
+			}
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			config := zlog.ConfigureFromJSONFile(configPath)
+			zlog.SetConfig(config)
+			if zlog.GetMinLogLevel() != tt.expected {
+				t.Errorf("Expected min level %v, got %v", tt.expected, zlog.GetMinLogLevel())
+			}
+			zlog.SetMinLogLevel(slog.LevelDebug)
+			zlog.SetConfig(zlog.Configure())
+		})
+	}
+}
+
+// TestAutoSourceConfig_AllLevels tests AutoSourceConfig for every level
+func TestAutoSourceConfig_AllLevels(t *testing.T) {
+	levels := []struct {
+		level   slog.Level
+		logFunc func()
+	}{
+		{slog.LevelDebug, func() { zlog.Debug().Message("test") }},
+		{slog.LevelInfo, func() { zlog.Info().Message("test") }},
+		{slog.LevelWarn, func() { zlog.Warn().Message("test") }},
+		{slog.LevelError, func() { zlog.Error().Message("test") }},
+	}
+	for _, tt := range levels {
+		t.Run(tt.level.String()+"_enabled", func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.SetConfig(zlog.Configure(zlog.AutoSourceConfig(tt.level, true)))
+			tt.logFunc()
+			logData, err := parseLogOutput(buf.String())
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+			if _, ok := logData["source"]; !ok {
+				t.Errorf("Expected source for level %s with AutoSource enabled", tt.level)
+			}
+			zlog.SetConfig(zlog.Configure())
+		})
+		t.Run(tt.level.String()+"_disabled", func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.SetConfig(zlog.Configure(zlog.AutoSourceConfig(tt.level, false)))
+			tt.logFunc()
+			logData, err := parseLogOutput(buf.String())
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+			if _, ok := logData["source"]; ok {
+				t.Errorf("Expected no source for level %s with AutoSource disabled", tt.level)
+			}
+			zlog.SetConfig(zlog.Configure())
+		})
+	}
+}
+
+// TestAutoCallStackConfig_AllLevels tests AutoCallStackConfig for every level
+func TestAutoCallStackConfig_AllLevels(t *testing.T) {
+	levels := []struct {
+		level   slog.Level
+		logFunc func()
+	}{
+		{slog.LevelDebug, func() { zlog.Debug().Message("test") }},
+		{slog.LevelInfo, func() { zlog.Info().Message("test") }},
+		{slog.LevelWarn, func() { zlog.Warn().Message("test") }},
+		{slog.LevelError, func() { zlog.Error().Message("test") }},
+	}
+	for _, tt := range levels {
+		t.Run(tt.level.String()+"_enabled", func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.SetConfig(zlog.Configure(zlog.AutoCallStackConfig(tt.level, true)))
+			tt.logFunc()
+			logData, err := parseLogOutput(buf.String())
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+			if _, ok := logData["callstack"]; !ok {
+				t.Errorf("Expected callstack for level %s", tt.level)
+			}
+			zlog.SetConfig(zlog.Configure())
+		})
+		t.Run(tt.level.String()+"_disabled", func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			zlog.SetConfig(zlog.Configure(zlog.AutoCallStackConfig(tt.level, false)))
+			tt.logFunc()
+			logData, err := parseLogOutput(buf.String())
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+			if _, ok := logData["callstack"]; ok {
+				t.Errorf("Expected no callstack for level %s", tt.level)
+			}
+			zlog.SetConfig(zlog.Configure())
+		})
+	}
+}
+
+// TestMaxCallStackDepthConfig_AllLevels tests depth limiting for all levels
+func TestMaxCallStackDepthConfig_AllLevels(t *testing.T) {
+	levels := []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError}
+	for _, level := range levels {
+		t.Run(level.String(), func(t *testing.T) {
+			var buf bytes.Buffer
+			setupTestLogger(&buf)
+			customDepth := 4
+			zlog.SetConfig(zlog.Configure(
+				zlog.AutoCallStackConfig(level, true),
+				zlog.MaxCallStackDepthConfig(level, customDepth),
+			))
+			var deepFunc func(int)
+			deepFunc = func(depth int) {
+				if depth == 0 {
+					switch level {
+					case slog.LevelDebug:
+						zlog.Debug().Message("test")
+					case slog.LevelInfo:
+						zlog.Info().Message("test")
+					case slog.LevelWarn:
+						zlog.Warn().Message("test")
+					case slog.LevelError:
+						zlog.Error().Message("test")
+					}
+					return
+				}
+				deepFunc(depth - 1)
+			}
+			deepFunc(20)
+			logData, err := parseLogOutput(buf.String())
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+			callstack, ok := logData["callstack"].([]interface{})
+			if !ok {
+				t.Fatal("Expected callstack to be present")
+			}
+			if len(callstack) > customDepth {
+				t.Errorf("Expected callstack length <= %d, got %d", customDepth, len(callstack))
+			}
+			zlog.SetConfig(zlog.Configure())
+		})
+	}
+}
+
+// TestConfigure_MultipleOptions tests Configure with multiple options combined
+func TestConfigure_MultipleOptions(t *testing.T) {
+	var buf bytes.Buffer
+	setupTestLogger(&buf)
+	zlog.SetConfig(zlog.Configure(
+		zlog.AutoSourceConfig(slog.LevelError, true),
+		zlog.AutoCallStackConfig(slog.LevelError, true),
+		zlog.MaxCallStackDepthConfig(slog.LevelError, 5),
+		zlog.MinLogLevelConfig(slog.LevelWarn),
+	))
+	buf.Reset()
+	zlog.Debug().Message("suppressed")
+	if buf.Len() != 0 {
+		t.Error("Expected Debug to be suppressed")
+	}
+	buf.Reset()
+	zlog.Info().Message("suppressed")
+	if buf.Len() != 0 {
+		t.Error("Expected Info to be suppressed")
+	}
+	buf.Reset()
+	zlog.Error().Message("error with features")
+	logData, err := parseLogOutput(buf.String())
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+	if _, ok := logData["source"]; !ok {
+		t.Error("Expected source for Error with auto-source")
+	}
+	if _, ok := logData["callstack"]; !ok {
+		t.Error("Expected callstack for Error with auto-callstack")
+	}
+	zlog.SetMinLogLevel(slog.LevelDebug)
+	zlog.SetConfig(zlog.Configure())
 }

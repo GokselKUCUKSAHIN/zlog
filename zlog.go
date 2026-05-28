@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/GokselKUCUKSAHIN/zlog/internal"
 )
 
 type ZLogger interface {
@@ -48,10 +50,11 @@ type levelConfig struct {
 type logConfig struct {
 	minLevel    slog.Level
 	minLevelSet bool
-	Debug       levelConfig `json:"debug"` // Configuration for Debug level (default MaxCallStackDepth: 20)
-	Info        levelConfig `json:"info"`  // Configuration for Info level (default MaxCallStackDepth: 5)
-	Warn        levelConfig `json:"warn"`  // Configuration for Warn level (default MaxCallStackDepth: 5)
-	Error       levelConfig `json:"error"` // Configuration for Error level (default MaxCallStackDepth: 10)
+	LogLevel    string      `json:"logLevel"` // Configuration for LogLevel level (default INFO)
+	Debug       levelConfig `json:"debug"`    // Configuration for Debug level (default MaxCallStackDepth: 20)
+	Info        levelConfig `json:"info"`     // Configuration for Info level (default MaxCallStackDepth: 5)
+	Warn        levelConfig `json:"warn"`     // Configuration for Warn level (default MaxCallStackDepth: 5)
+	Error       levelConfig `json:"error"`    // Configuration for Error level (default MaxCallStackDepth: 10)
 }
 
 type Configurable = func(config *logConfig)
@@ -89,18 +92,43 @@ func ConfigureFromJSONFile(configPath string) logConfig {
 		configPath += ".json"
 	}
 
-	var conf logConfig
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occurred while reading zlog config file. Default configurations applied")
+	conf, ok := parseConfigFile(configPath)
+	if !ok {
 		return logConfig{}
 	}
 
-	if err = json.Unmarshal(data, &conf); err != nil {
-		Warn().Segment("zlog", "ConfigureFromJSONFile").Err(err).Msgf("An error occurred while json unmarshal zlog config file. Default configurations applied")
-		return logConfig{}
+	if activeConfigWatcher != nil {
+		activeConfigWatcher.Stop()
 	}
+
+	watcher := internal.NewFileWatcher(configPath, func() {
+		if updated, ok := parseConfigFile(configPath); ok {
+			infoLogger.Info("config reloaded", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("file", configPath))
+			SetConfig(updated)
+		}
+	})
+	if err := watcher.Start(); err != nil {
+		warnLogger.Warn("failed to start config file watcher", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("file", configPath), slog.String("error_msg", err.Error()))
+	} else {
+		activeConfigWatcher = watcher
+	}
+
 	return conf
+}
+
+func parseConfigFile(configPath string) (logConfig, bool) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		warnLogger.Warn("an error occurred while reading zlog config file. Default configurations applied", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("error_msg", err.Error()))
+		return logConfig{}, false
+	}
+
+	var conf logConfig
+	if err = json.Unmarshal(data, &conf); err != nil {
+		warnLogger.Warn("an error occurred while json unmarshal zlog config file. Default configurations applied", slog.String("segment", "zlog/ConfigureFromJSONFile"), slog.String("error_msg", err.Error()))
+		return logConfig{}, false
+	}
+	return conf, true
 }
 
 func AutoSourceConfig(level slog.Level, autoSource bool) Configurable {
@@ -160,12 +188,13 @@ func MaxCallStackDepthConfig(level slog.Level, maxDepth int) Configurable {
 var (
 	globalMinLevel slog.LevelVar
 
-	debugLogger  *slog.Logger
-	infoLogger   *slog.Logger
-	warnLogger   *slog.Logger
-	errorLogger  *slog.Logger
-	globalConfig logConfig
-	logOutput    io.Writer = os.Stdout // Can be overridden for testing
+	debugLogger         *slog.Logger
+	infoLogger          *slog.Logger
+	warnLogger          *slog.Logger
+	errorLogger         *slog.Logger
+	globalConfig        logConfig
+	logOutput           io.Writer = os.Stdout // Can be overridden for testing
+	activeConfigWatcher *internal.FileWatcher
 
 	// Default call stack depths for each log level
 	defaultCallStackDepths = map[slog.Level]int{
@@ -227,6 +256,9 @@ func SetConfig(config logConfig) {
 	globalConfig = config
 	if config.minLevelSet {
 		globalMinLevel.Set(config.minLevel)
+	}
+	if config.LogLevel != "" {
+		globalMinLevel.Set(parseLogInfo(config.LogLevel))
 	}
 }
 
@@ -719,4 +751,18 @@ func getSourceString(skip int) (string, bool) {
 	b.WriteByte(':')
 	b.WriteString(strconv.FormatInt(int64(line), 10))
 	return b.String(), true
+}
+
+func parseLogInfo(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	}
+	return slog.LevelInfo
 }
